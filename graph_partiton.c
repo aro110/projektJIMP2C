@@ -15,6 +15,8 @@
 
 void flags(int argc, char *argv[], char **input_file, char **output_file, char **format, int *parts, char **method, double *error_margin) {
     int opt;
+
+    // przypisanie dlugich flag
     static struct option long_options[] = {
         {"help", no_argument, 0, 'h'},
         {"force", no_argument, 0, 'f'},
@@ -26,6 +28,7 @@ void flags(int argc, char *argv[], char **input_file, char **output_file, char *
         {0, 0, 0, 0}
     };
 
+    // obsluga flag
     while ((opt = getopt_long(argc, argv, "fhm:i:o:r:b:p:", long_options, NULL)) != -1) {
         switch (opt) {
             case 'f': // force
