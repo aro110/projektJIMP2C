@@ -28,7 +28,7 @@ void read_num(FILE *file, int *array, int *count) {
     size_t size = 128;
     char *line = malloc(size);
     if (!line) {
-        printf("Blad pamieci3.\n");
+        printf("Blad pamieci.\n");
         exit(15);
     }
 
@@ -41,7 +41,7 @@ void read_num(FILE *file, int *array, int *count) {
             size *= 2;
             line = realloc(line, size);
             if (!line) {
-                printf("Blad pamieci2.\n");
+                printf("Blad pamieci.\n");
                 exit(15);
             }
         }
@@ -60,7 +60,7 @@ void read_num(FILE *file, int *array, int *count) {
         }
     }
 
-    // Jeśli plik kończy się bez '\n', ręcznie zakończ linię
+    // Jeśli plik kończy się bez '\n'  zakończ linię
     if (last_char_was_eof) {
         line[len] = '\0';
     }
@@ -126,7 +126,7 @@ void read_file(char **input_file, char **format) {
             // alokacja pamieci
             vertices[i].conn = malloc(num_of_edges * sizeof(int));
             if(!vertices[i].conn) {
-                printf("Blad pamieci1.");
+                printf("Blad pamieci.");
                 exit(15);
             }
 
