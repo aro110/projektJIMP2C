@@ -1,0 +1,235 @@
+\documentclass[a4paper,12pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage{titlesec}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},   
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2
+}
+\DeclareUnicodeCharacter{202F}{\,}
+
+\lstset{style=mystyle}
+
+\title{\textbf{Dokumentacja Funkcjonalna} \\ Podział grafu}
+
+\author{Anastasiia Dmytrenko, Arkadiusz Perko}
+\date{13.03.2025}
+
+\begin{document}
+
+\maketitle
+
+\section{Cel projektu}
+Celem projektu jest implementacja narzędzia matematycznego w języku C, które automatyzuje i upraszcza proces rozwiązywania problemu podziału grafu. Aplikacja ma na celu efektywny podział wierzchołków grafu na równomiernie wielkościowe części przy minimalnej liczbie krawędzi między tymi grupami, co jest kluczowe dla zachowania strukturalnej spójności grafu.  
+
+\section{Dane wejściowe}
+Program oczekuje danych wejściowych w formacie tekstowym, zapisanych w pliku opisującym graf za pomocą listy sąsiedztwa. Dane powinny być przygotowane według precyzyjnie zdefiniowanego schematu:
+\begin{itemize}
+    \item \textbf{Pierwsza linia:} Maksymalna możliwa liczba węzłów w wierszu (w grafie nie musi znajdować się wiersz o takiej liczbie węzłów).
+    \item \textbf{Druga linia:} Indeksy węzłów w poszczególnych wierszach - liczba wszystkich indeksów odpowiada liczbie węzłów grafu.
+    \item \textbf{Trzecia linia:} Wskaźniki na pierwsze indeksy węzłów w liście wierszy z punktu 2.
+    \item \textbf{Czwarta linia:} Lista sąsiedztwa węzłów grafu.
+    \item \textbf{Piąta linia \textbf{(i każda kolejna w przypadku grafów niespójnych): }}Wskaźniki na pierwsze węzły w poszczególnych grupach z linii 4.
+\end{itemize}
+
+
+Przykładowa zawartość pliku wejściowego:
+\begin{lstlisting}
+4
+0; 2; 3; 1; 1; 2
+0; 0; 3; 4; 6
+0; 1; 1; 2; 3; 2; 3; 5; 3; 4
+0; 2; 5; 8; 10
+\end{lstlisting}
+
+\section{Argumenty wywołania programu}
+Program obsługuje serię argumentów wywołania, które pozwalają użytkownikowi na szczegółową konfigurację procesu.
+
+\subsection{Standardowe wywołanie}
+\begin{lstlisting}
+./graph_partition -i [input-file] -o [output-file] -r [format-output-file] -p [parts] -b [error-margin] -m [method(optional)] [other]
+\end{lstlisting}
+
+\begin{itemize}
+
+    \item \textbf{input-file}  - Ścieżka do pliku z danymi grafu. 
+
+    \item \textbf{output-file } - Ścieżka, gdzie zostanie zapisany plik z wynikiem działania programu. 
+
+    \item \textbf{format-output-file} - Określenie jaki format ma mieć plik wyjściowy (ASCII lub binarny). 
+
+    \item \textbf{parts}  - Liczba części na które graf ma zostać podzielony. 
+
+    \item \textbf{error-margin}  - Dopuszczalny margines błędu dla równomierności rozmiarów części (przyjmujemy wartość w punktach procentowych). 
+
+    \item \textbf{method}  - (opcjonalnie) Metoda podziału grafu, może być niepodana, wtedy użyta zostanie metoda domyślna (\textit{Algorytm Kernighan-Lin)}. Do wyboru są 3 metody: \textit{-kl, -m, -w.} 
+
+    \item \textbf{other }- Pozostałe opcjonalne flagi (\textit{-f, --force} lub \textit{-h, --help}). 
+
+\end{itemize}
+
+\subsection{Dostępne flagi }
+
+\textit{\textbf{-f, --force}} - Zmusza program do podziału grafu nawet w przypadku braku możliwości zastosowania podanego marginesu błędu do rozwiązania. 
+
+\textit{\textbf{-h, --help}}  - Wyświetla instrukcję użytkowania programu. 
+
+\textbf{-\textit{m, \textbf{--}method} }- Wybiera algorytm spośród wartości: 
+
+                \textit{\textbf{        kl}}  - Wybiera metodę opartą na algorytmie Kernighan-Lin do podziału grafu. 
+
+            \textit{\textbf{        m}} - Wybiera metodę opartą na macierzy Laplaciana do podziału grafu. 
+
+            \textit{\textbf{        w}} - Wybiera metodę opartą na obliczeniu współczynnika wydajności podziału grafu. 
+
+\textbf{\textit{-i, --input-file}} - Wczytuje plik wejściowy znajdujący się pod podaną ścieżką.  
+
+\textbf{\textit{-o, --output-file}}\textbf{ }- Zapisuje wynik do pliku w folderze o podanej ścieżce.  
+
+\textbf{\textit{-r, --format ascii / binary}} - Określa format pliku wyjściowego: ASCII lub binarny.  
+
+\textbf{\textit{-b} }- Ustawia dopuszczalny margines błędu dla równomierności rozmiarów części grafu.  
+
+\textbf{\textit{-p, --parts}}\textbf{ }- Określa, na ile części ma zostać podzielony graf.  
+
+
+\subsection{Przykładowe wywołania}
+\begin{lstlisting}
+./graph_partition -i data.txt -o partition.txt -r ascii -p 4 -b 5 -m kl
+\end{lstlisting}
+To wywołanie uruchomi program, który wczyta graf z pliku \textit{data.txt}, podzieli go na \textit{4} części, z marginesem błędu równomierności na poziomie \textit{5\%}, używając algorytmu \textit{Kernighan-Lin} do podziału. Wynik zostanie zwrócony w pliku partition.txt w formacie tekstowym. 
+
+\textbf{
+\subsection{Zaawansowane użycie:}
+} 
+
+Można łączyć różne flagi, aby dostosować działanie programu do szczególnych potrzeb: 
+\begin{lstlisting}
+./graph_partition --input-file data.txt -o partition.txt -r binary -p 3 -b 10 -m w --force \end{lstlisting} 
+To wywołanie uruchomi podział grafu z użyciem algorytmu opartego na \textit{współczynniku wydajności}, zmuszając program do podziału pomimo potencjalnych trudności w spełnieniu marginesu błędu w \textit{10\%}. Wynik zostanie zwrócony w pliku partition.txt w formacie binarnym. 
+
+\section{Opis funkcji}
+
+\textbf{ 1. Wczytanie danych grafu} 
+
+Służy do wczytywania danych grafu z pliku tekstowego w formacie listy sąsiedztwa. 
+
+\textbf{Dane wejściowe:} plik tekstowy z listą sąsiedztwa. 
+
+\textbf{Wynik działania:} Graf reprezentowany w pamięci programu, gotowy do przetworzenia. 
+
+\textbf{2. Podział grafu} 
+
+Funkcja dzieli graf na określoną przez użytkownika liczbę części, starając się równomiernie rozdzielić wierzchołki i minimalizować liczbę przecinających się krawędzi. 
+
+Program oferuje trzy metody podziału grafu, z których użytkownik może wybrać przez argumenty wywołania: 
+
+\textit{2.1. Algorytm Kernighan-Lin} 
+
+Algorytm heurystyczny optymalizujący podział grafu poprzez minimalizację liczby krawędzi między podzielonymi grupami. 
+
+\textit{2.2. Metoda macierzy Laplaciana} 
+
+Wykorzystuje macierz Laplaciana grafu do optymalizacji podziału, bazując na analizie wartości własnych i wektorów własnych tej macierzy. 
+
+\textit{2.3. Algorytm własny z wykorzystaniem współczynnika wydajności podziału} 
+
+Implementuje własny algorytm oparty na obliczeniach wydajności podziału, który może być dostosowany do potrzeb użytkownika. 
+
+\textbf{3. Obsługa argumentów wywołania} 
+
+Funkcja interpretuje i przetwarza argumenty podane przez użytkownika w linii poleceń. 
+
+\textbf{Dane wejściowe:} Argumenty wywołania programu, takie jak liczba części na które podzielić graf, nazwa pliku danych wejściowych, nazwa pliku wyjściowego itp. 
+
+\textbf{Wynik działania:} Konfiguracja działania programu zgodna z podanymi parametrami. 
+
+\textbf{4. Zapis wyniku do pliku} 
+
+Funkcja zapisuje wynik podziału grafu do pliku, który może być użyty do ponownego rozwiązywania lub wizualizacji w JAVA. 
+
+\textbf{Dane wejściowe:} Wyniki działania funkcji podziału grafu. 
+
+\textbf{Wynik działania:} Plik (tekstowy lub binarny) zawierający wyniki podziału grafu. 
+
+\newpage
+\section{{Obsługa błędów} }
+
+Program monitoruje różne potencjalne błędy podczas działania. Poniżej przedstawiono scenariusze wyjątkowe wraz z odpowiadającymi im komunikatami błędów i zalecanymi działaniami. 
+
+{\textbf{Liczba części na które użytkownik chce podzielić graf jest mniejsza niż 2.}}
+
+Komunikat : \textit{"Błąd: liczba części musi być większa lub równa 2."} 
+
+Działanie: Program prosi o ponowne wpisanie liczby części na wartość >=2. 
+
+Kod błędu: 10 
+
+
+
+\textbf{Brakujący parametr wywołania}
+
+Komunikat: \textit{"Błąd: parametry wywołania są niewystarczające, aby uruchomić program.”} 
+
+Działanie: Program przerywa działanie. Użytkownik musi ponownie uruchomić program z argumentami wywołania zgodnie z dokumentacją. 
+
+Kod błędu: 11 
+
+
+
+\textbf{Nieistniejący parametr} 
+
+Komunikat: \textit{"Błąd: nieznany parametr."} 
+
+Działanie: Program przerywa działanie. Użytkownik musi sprawdzić dostępne parametry w dokumentacji i je dostosować w ponownym uruchomieniu programu. 
+
+Kod błędu: 12 
+
+
+
+\textbf{Niepoprawny format pliku wejściowego} 
+
+Komunikat: \textit{"Błąd: niepoprawny format pliku wejściowego."} 
+
+Działanie: Program przerywa działanie. Użytkownik musi upewnić się, że plik wejściowy jest sformatowany zgodnie z wymaganiami programu. 
+
+Kod błędu: 13 
+
+
+
+\textbf{Błędne wprowadzanie danych} 
+
+Komunikat: \textit{"Błąd: błędne dane wejściowe."} 
+
+Działanie: Program przerywa działanie. Użytkownik musi zweryfikować i skorygować dane wejściowe. 
+
+Kod błędu: 14 
+
+
+
+\textbf{Błąd pamięci} 
+
+Komunikat: „Błąd: pomyłka pamięci.” 
+
+Działanie: Program przerywa działanie z powodów błędu pamięci. 
+
+Kod błędu: 15 
+
+\end{document}
+
