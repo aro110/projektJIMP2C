@@ -11,10 +11,11 @@ typedef struct vertex {
     int group;
     int fixed;
     int D;
+    short x;
+    short y;
 } Vertex;
 
-#define MAX_VERTICES 1024
-Vertex vertices[MAX_VERTICES];
+Vertex *vertices = NULL;
 
 int calc_G(int first_vertex, int second_vertex1, int second_vertex2) {
     int g = 0;
@@ -193,100 +194,156 @@ void graph_partioning(char *method, int parts, double error_margin, int vertex_c
     }
 }
 
-
 void read_file_error(FILE *file) {
-    if(file == NULL) {
-        printf("Blad: bledne dane wejsciowe.");
+    if (file == NULL) {
+        printf("Blad: bledne dane wejsciowe.\n");
         exit(14);
     }
 }
 
-void read_num(FILE *file, int *array, int *count) {
-    *count = 0;
+void validate_graph_data(int max_matrix, int *x_coords, int x_count, int *y_offsets, int y_offsets_count, int *connections, int count_conn, int *offsets, int count_offsets) {
+    if (x_count <= 0) {
+        printf("Blad: Niepoprawna liczba wierzcholkow.\n");
+        exit(18);
+    }
 
+    for (int i = 0; i < x_count; i++) {
+        if (x_coords[i] < 0 || x_coords[i] > max_matrix) {
+            printf("Blad: Wspolrzedna x poza zakresem (x[%d]=%d, max_matrix=%d).\n", i, x_coords[i], max_matrix);
+            exit(18);
+        }
+    }
+
+    if (y_offsets[y_offsets_count - 1] != x_count) {
+        printf("Blad: Liczba wierzcholkow nie zgadza sie z offsetami Y.\n");
+        exit(18);
+    }
+
+    for (int i = 0; i < y_offsets_count - 1; i++) {
+        if (y_offsets[i] > y_offsets[i + 1]) {
+            printf("Blad: Offsety Y musza byc rosnace (y_offsets[%d]=%d, y_offsets[%d]=%d).\n", i, y_offsets[i], i + 1, y_offsets[i + 1]);
+            exit(18);
+        }
+    }
+
+    for (int i = 0; i < count_conn; i++) {
+        if (connections[i] < 0 || connections[i] >= x_count) {
+            printf("Blad: Niepoprawny indeks w connections[%d]=%d.\n", i, connections[i]);
+            exit(18);
+        }
+    }
+
+    if (offsets[count_offsets - 1] > count_conn) {
+        printf("Blad: Niepoprawna konfiguracja offsetow (edges).\n");
+        exit(18);
+    }
+
+    for (int i = 0; i < count_offsets - 1; i++) {
+        if (offsets[i] > offsets[i + 1] || offsets[i] > count_conn) {
+            printf("Blad: Offsety edges musza byc rosnace i poprawne (offsets[%d]=%d, offsets[%d]=%d).\n", i, offsets[i], i + 1, offsets[i + 1]);
+            exit(18);
+        }
+    }
+}
+
+void read_num_dynamic(FILE *file, int **array, int *count) {
+    *count = 0;
     size_t size = 128;
-    char *line = malloc(size);
+    *array = malloc(size * sizeof(int));
+    if (!*array) {
+        printf("Blad pamieci.\n");
+        exit(15);
+    }
+
+    size_t buffer_size = 8192;
+    char *line = malloc(buffer_size);
     if (!line) {
         printf("Blad pamieci.\n");
         exit(15);
     }
 
-    size_t len = 0;
-    int ch2;
-
-    while ((ch2 = fgetc(file)) != EOF) {
-        if (len + 1 >= size) {
-            size *= 2;
-            line = realloc(line, size);
-            if (!line) {
-                printf("Blad pamieci.\n");
-                exit(15);
-            }
-        }
-        if (ch2 == '\n' || ch2 == EOF) {
-            break;
-        }
-        line[len++] = ch2;
+    if (fgets(line, buffer_size, file) == NULL) {
+        printf("Blad: Brak danych.\n");
+        free(line);
+        exit(18);
     }
-    line[len] = '\0';
-
-
-    line[len] = '\0';
 
     char *token = strtok(line, ";");
     while (token != NULL) {
-        while (*token == ' ') token++;  // usuń spacje na początku tokena
-        if (*token != '\0') {
-            array[*count] = atoi(token);
-            (*count)++;
+        while (*token == ' ') token++;
+        if (*count >= size) {
+            size *= 2;
+            *array = realloc(*array, size * sizeof(int));
+            if (!*array) {
+                printf("Blad pamieci realloc.\n");
+                free(line);
+                exit(15);
+            }
         }
+        (*array)[(*count)++] = atoi(token);
         token = strtok(NULL, ";");
     }
 
     free(line);
 }
 
-
 void read_file(char **input_file, int *vertex_count) {
     FILE *file = fopen(*input_file, "r");
     read_file_error(file);
 
-    // 1. Wczytaj liczbę wierzchołków
-    char buffer[32];
-    if (fgets(buffer, sizeof(buffer), file) != NULL) {
-        *vertex_count = atoi(buffer);
-        if (*vertex_count <= 0 || *vertex_count > MAX_VERTICES) {
-            printf("Blad: Niepoprawna liczba wierzcholkow (1 linia).\n");
-            exit(18);
+    int max_matrix = 0;
+    fscanf(file, "%d", &max_matrix);
+    max_matrix--;
+    int ch;
+    while ((ch = fgetc(file)) != '\n' && ch != EOF);
+
+    int *x_coords = NULL;
+    int x_count = 0;
+    read_num_dynamic(file, &x_coords, &x_count);
+
+    int *y_offsets = NULL;
+    int y_offsets_count = 0;
+    read_num_dynamic(file, &y_offsets, &y_offsets_count);
+
+    *vertex_count = x_count;
+
+    int *connections = NULL;
+    int *offsets = NULL;
+    int count_conn = 0, count_offsets = 0;
+
+    read_num_dynamic(file, &connections, &count_conn);
+    read_num_dynamic(file, &offsets, &count_offsets);
+
+    validate_graph_data(max_matrix, x_coords, x_count, y_offsets, y_offsets_count, connections, count_conn, offsets, count_offsets);
+
+    vertices = malloc(*vertex_count * sizeof(Vertex));
+    if (!vertices) {
+        printf("Blad pamieci (alokacja vertices).\n");
+        exit(15);
+    }
+
+    for (int i = 0; i < *vertex_count; i++) {
+        vertices[i].x = x_coords[i];
+        vertices[i].fixed = 0;
+        vertices[i].group = 0;
+        vertices[i].D = 0;
+        vertices[i].edge_num = 0;
+        vertices[i].conn = NULL;
+
+        for (int y = 0; y < y_offsets_count - 1; y++) {
+            if (i >= y_offsets[y] && i < y_offsets[y + 1]) {
+                vertices[i].y = y - 1;
+                break;
+            }
         }
     }
 
-    // 2. Pomiń 2 kolejne linie (nagłówki)
-    int ch, line_count = 0;
-    while (line_count < 2 && (ch = fgetc(file)) != EOF) {
-        if (ch == '\n') line_count++;
-    }
-
-    // 3. Wczytaj linie 4 i 5 (połączenia i offsety)
-    int connections[10000];  // może być zwiększone
-    int offsets[1024];
-    int count_conn = 0, count_offsets = 0;
-
-    read_num(file, connections, &count_conn);
-    read_num(file, offsets, &count_offsets);
-
-    // WALIDACJA: ostatni offset nie może być > liczby połączeń
-    if (offsets[count_offsets - 1] > count_conn) {
-        printf("Blad: Niepoprawna konfiguracja offsetow (linia 4 i 5).\n");
-        exit(18);
-    }
-
-    // Alokacja macierzy sąsiedztwa (symetrycznej)
     int **adjacency = malloc(*vertex_count * sizeof(int *));
     if (!adjacency) {
         printf("Blad pamieci (alokacja adjacency).\n");
         exit(15);
     }
+
     for (int i = 0; i < *vertex_count; i++) {
         adjacency[i] = calloc(*vertex_count, sizeof(int));
         if (!adjacency[i]) {
@@ -295,18 +352,12 @@ void read_file(char **input_file, int *vertex_count) {
         }
     }
 
-    // Inicjalizacja liczby krawędzi
-    for (int i = 0; i < *vertex_count; i++) {
-        vertices[i].edge_num = 0;
-    }
-
-    // Parsowanie połączeń na podstawie offsetów
     for (int i = 0; i < count_offsets - 1; i++) {
         int start = offsets[i];
         int end = offsets[i + 1];
-        if (start >= end) continue; // brak połączeń
+        if (start >= end) continue;
 
-        int from = connections[start];  // pierwszy element = wierzchołek źródłowy
+        int from = connections[start];
         for (int j = start + 1; j < end; j++) {
             int to = connections[j];
             if (!adjacency[from][to]) {
@@ -318,17 +369,19 @@ void read_file(char **input_file, int *vertex_count) {
         }
     }
 
-    // Alokacja tablic połączeń
     for (int i = 0; i < *vertex_count; i++) {
-        vertices[i].conn = malloc(vertices[i].edge_num * sizeof(int));
-        if (!vertices[i].conn) {
-            printf("Blad pamieci (alokacja conn[%d]).\n", i);
-            exit(15);
+        if (vertices[i].edge_num > 0) {
+            vertices[i].conn = malloc(vertices[i].edge_num * sizeof(int));
+            if (!vertices[i].conn) {
+                printf("Blad pamieci (alokacja conn[%d]).\n", i);
+                exit(15);
+            }
+        } else {
+            vertices[i].conn = NULL;
         }
-        vertices[i].edge_num = 0;  // zresetuj, będziemy zapełniać ponownie
+        vertices[i].edge_num = 0;
     }
 
-    // Wypełnienie tablicy połączeń
     for (int i = 0; i < *vertex_count; i++) {
         for (int j = 0; j < *vertex_count; j++) {
             if (adjacency[i][j]) {
@@ -337,14 +390,25 @@ void read_file(char **input_file, int *vertex_count) {
         }
     }
 
-    // Zwolnienie pamięci pomocniczej
     for (int i = 0; i < *vertex_count; i++) {
         free(adjacency[i]);
     }
     free(adjacency);
 
+    free(x_coords);
+    free(y_offsets);
+    free(connections);
+    free(offsets);
+
     fclose(file);
+
+    printf("Wspolrzedne wierzcholkow:\n");
+    for (int i = 0; i < *vertex_count; i++) {
+        printf("Wierzcholek %d: x = %d, y = %d\n", i, vertices[i].x, vertices[i].y);
+    }
 }
+
+
 
 void flags_error(char **format, char *raw_parts, int *parts, char **method, char *raw_error_margin, double *error_margin) {
     // format
@@ -414,7 +478,7 @@ void flags(int argc, char *argv[], char **input_file, char **output_file, char *
                 break;
             case 'i': // input_file
                 // *input_file = optarg;
-                    *input_file = "C:/Users/Arkadiusz/CLionProjects/projektJIMP2C/dane1.txt";
+                    *input_file = "C:/Users/Arkadiusz/CLionProjects/projektJIMP2C/dane2.txt";
                 break;
             case 'o': // output_file
                 *output_file = optarg;
@@ -461,5 +525,6 @@ int main(int argc, char *argv[]) {
     // printf("wartosc -b: %f\n", error_margin);
     // printf("%d", vertex_count);
 
+    free(vertices);
     return 0;
 }
