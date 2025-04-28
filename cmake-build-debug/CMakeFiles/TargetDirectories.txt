@@ -1,3 +1,0 @@
-C:/Users/Arkadiusz/CLionProjects/projektJIMP2C/cmake-build-debug/CMakeFiles/projektJIMP2C.dir
-C:/Users/Arkadiusz/CLionProjects/projektJIMP2C/cmake-build-debug/CMakeFiles/edit_cache.dir
-C:/Users/Arkadiusz/CLionProjects/projektJIMP2C/cmake-build-debug/CMakeFiles/rebuild_cache.dir
