@@ -128,19 +128,6 @@ int kernighan_lin_algorithm (int one_group_vertices_count, int vertex_count) {
         edge_cut = edge_cut_counter(one_group_vertices_count);
     }
 
-    // printf("Do gr 1 naleza: ");
-    // for(int i=0; i<vertex_count; i++) {
-    //     if (vertices[i].group == 1) {
-    //         printf("%d, ", i);
-    //     }
-    // }
-    // printf("\nDo gr 2 naleza: ");
-    // for(int i=0; i<vertex_count; i++) {
-    //     if (vertices[i].group == 2) {
-    //         printf("%d, ", i);
-    //     }
-    // }
-
     return new_edge_cut;
 }
 
@@ -349,15 +336,6 @@ void read_file(char **input_file, int *vertex_count) {
             }
         }
     }
-
-    // printf("Lista polaczen wierzcholkow:\n");
-    // for (int i = 0; i < *vertex_count; i++) {
-    //     printf("Wierzcholek %d (krawedzie: %d): ", i, vertices[i].edge_num);
-    //     for (int j = 0; j < vertices[i].edge_num; j++) {
-    //         printf("%d ", vertices[i].conn[j]);
-    //     }
-    //     printf("\n");
-    // }
 
     // Zwolnienie pamięci pomocniczej
     for (int i = 0; i < *vertex_count; i++) {
