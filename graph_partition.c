@@ -4,6 +4,10 @@
 #include <stdlib.h>
 #include <getopt.h>
 #include <string.h>
+#include <math.h>
+#include <assert.h>
+
+#define EPSILON 1e-6
 
 typedef struct vertex {
     int edge_num;
@@ -16,6 +20,216 @@ typedef struct vertex {
 } Vertex;
 
 Vertex *vertices = NULL;
+
+typedef struct matrix {
+    int n;
+    double **data;
+} Matrix;
+
+typedef struct entry {
+    int index;
+    double value;
+} Entry;
+
+int cmp_entry(const void *a, const void *b) {
+    double diff = ((Entry *)a)->value - ((Entry *)b)->value;
+    return (diff < 0) ? -1 : (diff > 0);
+}
+
+Matrix *alloc_matrix(int n) {
+    Matrix *m = malloc(sizeof(Matrix));
+    assert(m != NULL);
+    m->n = n;
+    m->data = malloc(n * sizeof(double *));
+    assert(m->data != NULL);
+    for (int i = 0; i < n; i++) {
+        m->data[i] = calloc(n, sizeof(double));
+        assert(m->data[i] != NULL);
+    }
+    return m;
+}
+
+void free_matrix(Matrix *m) {
+    for (int i = 0; i < m->n; i++) {
+        free(m->data[i]);
+    }
+    free(m->data);
+    free(m);
+}
+
+Matrix *build_laplacian_matrix(int n) {
+    Matrix *L = alloc_matrix(n);
+    for (int i = 0; i < n; i++) {
+        int deg = vertices[i].edge_num;
+        L->data[i][i] = deg;
+        for (int j = 0; j < deg; j++) {
+            int neighbor = vertices[i].conn[j];
+            L->data[i][neighbor] = -1;
+        }
+    }
+    return L;
+}
+
+void normalize_vector(double *v, int n) {
+    double norm = 0;
+    for (int i = 0; i < n; i++) norm += v[i] * v[i];
+    norm = sqrt(norm);
+    if (norm > EPSILON) {
+        for (int i = 0; i < n; i++) v[i] /= norm;
+    }
+}
+
+void matvec_mul(Matrix *m, double *v, double *result) {
+    for (int i = 0; i < m->n; i++) {
+        result[i] = 0;
+        for (int j = 0; j < m->n; j++) {
+            result[i] += m->data[i][j] * v[j];
+        }
+    }
+}
+
+double vector_dot(const double *a, const double *b, int n) {
+    double sum = 0;
+    for (int i = 0; i < n; i++) sum += a[i] * b[i];
+    return sum;
+}
+
+void power_iteration(Matrix *L, double *eigenvector, const int max_iter) {
+    const int n = L->n;
+    double *b_k = calloc(n, sizeof(double));
+    double *b_k1 = calloc(n, sizeof(double));
+
+    assert(b_k != NULL && b_k1 != NULL);
+    for (int i = 0; i < n; i++) {
+        b_k[i] = rand() / (double)RAND_MAX;
+    }
+    normalize_vector(b_k, n);
+
+    for (int iter = 0; iter < max_iter; iter++) {
+        matvec_mul(L, b_k, b_k1);
+        normalize_vector(b_k1, n);
+
+        double dot = vector_dot(b_k1, b_k, n);
+        if (fabs(dot - 1.0) < EPSILON) break;
+
+        double *tmp = b_k;
+        b_k = b_k1;
+        b_k1 = tmp;
+    }
+
+    memcpy(eigenvector, b_k, n * sizeof(double));
+
+    if (b_k != b_k1) free(b_k1);
+    free(b_k);
+}
+
+int edge_cut_all(int vertex_count) {
+    int cut = 0;
+    for (int i = 0; i < vertex_count; i++) {
+        for (int j = 0; j < vertices[i].edge_num; j++) {
+            int neighbor = vertices[i].conn[j];
+            if (vertices[i].group != vertices[neighbor].group) cut++;
+        }
+    }
+    return cut / 2;
+}
+
+int is_vertex_connected_to_own_group(int v) {
+    for (int i = 0; i < vertices[v].edge_num; i++) {
+        int neighbor = vertices[v].conn[i];
+        if (vertices[neighbor].group == vertices[v].group) return 1;
+    }
+    return 0;
+}
+
+void fix_group_connectivity_spectral(int vertex_count, int parts, int min_size, int max_size) {
+    int *group_sizes = calloc(parts, sizeof(int));
+    assert(group_sizes != NULL);
+
+    for (int i = 0; i < vertex_count; i++) group_sizes[vertices[i].group]++;
+
+    for (int i = 0; i < vertex_count; i++) {
+        if (!is_vertex_connected_to_own_group(i)) {
+            int current = vertices[i].group;
+            int best_target = -1;
+
+            for (int g = 0; g < parts; g++) {
+                if (g != current && group_sizes[g] < max_size) {
+                    best_target = g;
+                    break;
+                }
+            }
+            if (best_target != -1) {
+                vertices[i].group = best_target;
+                group_sizes[current]--;
+                group_sizes[best_target]++;
+            }
+        }
+    }
+    free(group_sizes);
+}
+
+void spectral_partitioning(int parts, int vertex_count, double error_margin) {
+    Matrix *L = build_laplacian_matrix(vertex_count);
+    double *eigenvector = malloc(vertex_count * sizeof(double));
+    Entry *entries = malloc(vertex_count * sizeof(Entry));
+    int *best_groups = malloc(vertex_count * sizeof(int));
+
+    assert(L != NULL && eigenvector != NULL && entries != NULL && best_groups != NULL);
+    int max_iter = vertex_count * 10;
+    power_iteration(L, eigenvector, max_iter);
+
+    for (int i = 0; i < vertex_count; i++) {
+        entries[i].index = i;
+        entries[i].value = eigenvector[i];
+    }
+    qsort(entries, vertex_count, sizeof(Entry), cmp_entry);
+
+    int best_edge_cut = 999999;
+
+    for (int start = 0; start < parts; start++) {
+        int *group_counts = calloc(parts, sizeof(int));
+        assert(group_counts != NULL);
+
+        for (int i = 0; i < vertex_count; i++) {
+            int g = (i - start + parts) % parts;
+            vertices[entries[i].index].group = g;
+            group_counts[g]++;
+        }
+
+        int target = vertex_count / parts;
+        int margin = (int)(target * error_margin / 100.0);
+        int min_size = target - margin;
+        if (min_size < 0) min_size = 0;
+        int max_size = target + margin;
+
+        fix_group_connectivity_spectral(vertex_count, parts, min_size, max_size);
+        int edge_cut = edge_cut_all(vertex_count);
+        if (edge_cut < best_edge_cut) {
+            best_edge_cut = edge_cut;
+            for (int i = 0; i < vertex_count; i++) best_groups[i] = vertices[i].group;
+        }
+        free(group_counts);
+    }
+
+    for (int i = 0; i < vertex_count; i++) vertices[i].group = best_groups[i];
+
+    printf("\nSpektralny podzial (soft margin):\n");
+    for (int i = 0; i < parts; i++) {
+        printf("Grupa %d: ", i);
+        for (int j = 0; j < vertex_count; j++) {
+            if (vertices[j].group == i) printf("%d ", j);
+        }
+        printf("\n");
+    }
+    printf("\nLiczba przeciętych krawędzi: %d\n", best_edge_cut);
+
+    free(best_groups);
+    free_matrix(L);
+    free(eigenvector);
+    free(entries);
+}
+
 
 void reset_fixed_flags(Vertex *vertices, int vertex_count) {
     for (int i = 0; i < vertex_count; i++) {
@@ -169,6 +383,31 @@ int kernighan_lin_algorithm(int one_group_vertices_count, int vertex_count) {
     return best_cut;
 }
 
+void fix_group_connectivity(int vertex_count, int allowed_balance_diff) {
+    int group_0 = 0, group_1 = 0;
+    for (int i = 0; i < vertex_count; i++) {
+        if (vertices[i].group == 0) group_0++;
+        else group_1++;
+    }
+
+    for (int i = 0; i < vertex_count; i++) {
+        if (!is_vertex_connected_to_own_group(i)) {
+            int current_group = vertices[i].group;
+            int target_group = 1 - current_group;
+
+            if ((target_group == 0 && group_0 + 1 <= group_1 - 1 + allowed_balance_diff) ||
+                (target_group == 1 && group_1 + 1 <= group_0 - 1 + allowed_balance_diff)) {
+                vertices[i].group = target_group;
+                if (target_group == 0) { group_0++; group_1--; }
+                else { group_1++; group_0--; }
+                }
+        }
+    }
+
+    int edge_cut = edge_cut_all(vertex_count);
+    printf("\nPo korekcie spojnosc grup: Liczba przecietych krawedzi: %d\n", edge_cut);
+}
+
 void graph_partioning(char *method, int parts, double error_margin, int vertex_count) {
     if (strcmp(method, "kl") == 0) {
         if (parts != 2) {
@@ -212,7 +451,12 @@ void graph_partioning(char *method, int parts, double error_margin, int vertex_c
         }
         printf("\n");
 
+        int allowed_diff = (int)(vertex_count * (error_margin / 100.0));
+        fix_group_connectivity(vertex_count, allowed_diff);
+
         free(best_groups);
+    } else if (strcmp(method, "m") == 0) {
+        spectral_partitioning(parts, vertex_count, error_margin);
     } else {
         printf("Blad: Wybrana metoda '%s' nie jest jeszcze wspierana.\n", method);
         exit(14);
