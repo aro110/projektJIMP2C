@@ -5,6 +5,7 @@
 #include <getopt.h>
 #include <string.h>
 #include <math.h>
+#include <assert.h>
 
 #define EPSILON 1e-6
 
@@ -25,12 +26,25 @@ typedef struct matrix {
     double **data;
 } Matrix;
 
+typedef struct entry {
+    int index;
+    double value;
+} Entry;
+
+int cmp_entry(const void *a, const void *b) {
+    double diff = ((Entry *)a)->value - ((Entry *)b)->value;
+    return (diff < 0) ? -1 : (diff > 0);
+}
+
 Matrix *alloc_matrix(int n) {
     Matrix *m = malloc(sizeof(Matrix));
+    assert(m != NULL);
     m->n = n;
     m->data = malloc(n * sizeof(double *));
+    assert(m->data != NULL);
     for (int i = 0; i < n; i++) {
         m->data[i] = calloc(n, sizeof(double));
+        assert(m->data[i] != NULL);
     }
     return m;
 }
@@ -74,37 +88,39 @@ void matvec_mul(Matrix *m, double *v, double *result) {
     }
 }
 
-double vector_dot(double *a, double *b, int n) {
+double vector_dot(const double *a, const double *b, int n) {
     double sum = 0;
     for (int i = 0; i < n; i++) sum += a[i] * b[i];
     return sum;
 }
 
-void power_iteration(Matrix *L, double *eigenvector, int max_iter) {
-    int n = L->n;
+void power_iteration(Matrix *L, double *eigenvector, const int max_iter) {
+    const int n = L->n;
     double *b_k = calloc(n, sizeof(double));
     double *b_k1 = calloc(n, sizeof(double));
-    for (int i = 0; i < n; i++) b_k[i] = rand() / (double)RAND_MAX;
+
+    assert(b_k != NULL && b_k1 != NULL);
+    for (int i = 0; i < n; i++) {
+        b_k[i] = rand() / (double)RAND_MAX;
+    }
     normalize_vector(b_k, n);
 
     for (int iter = 0; iter < max_iter; iter++) {
         matvec_mul(L, b_k, b_k1);
         normalize_vector(b_k1, n);
+
         double dot = vector_dot(b_k1, b_k, n);
         if (fabs(dot - 1.0) < EPSILON) break;
+
         double *tmp = b_k;
         b_k = b_k1;
         b_k1 = tmp;
     }
 
-    for (int i = 0; i < n; i++) eigenvector[i] = b_k[i];
-    free(b_k);
-    free(b_k1);
-}
+    memcpy(eigenvector, b_k, n * sizeof(double));
 
-int cmp_double(const void *a, const void *b) {
-    double diff = *(double *)a - *(double *)b;
-    return (diff < 0) ? -1 : (diff > 0);
+    if (b_k != b_k1) free(b_k1);
+    free(b_k);
 }
 
 int edge_cut_all(int vertex_count) {
@@ -118,42 +134,85 @@ int edge_cut_all(int vertex_count) {
     return cut / 2;
 }
 
+int is_vertex_connected_to_own_group(int v) {
+    for (int i = 0; i < vertices[v].edge_num; i++) {
+        int neighbor = vertices[v].conn[i];
+        if (vertices[neighbor].group == vertices[v].group) return 1;
+    }
+    return 0;
+}
+
+void fix_group_connectivity_spectral(int vertex_count, int parts, int min_size, int max_size) {
+    int *group_sizes = calloc(parts, sizeof(int));
+    assert(group_sizes != NULL);
+
+    for (int i = 0; i < vertex_count; i++) group_sizes[vertices[i].group]++;
+
+    for (int i = 0; i < vertex_count; i++) {
+        if (!is_vertex_connected_to_own_group(i)) {
+            int current = vertices[i].group;
+            int best_target = -1;
+
+            for (int g = 0; g < parts; g++) {
+                if (g != current && group_sizes[g] < max_size) {
+                    best_target = g;
+                    break;
+                }
+            }
+            if (best_target != -1) {
+                vertices[i].group = best_target;
+                group_sizes[current]--;
+                group_sizes[best_target]++;
+            }
+        }
+    }
+    free(group_sizes);
+}
+
 void spectral_partitioning(int parts, int vertex_count, double error_margin) {
     Matrix *L = build_laplacian_matrix(vertex_count);
     double *eigenvector = malloc(vertex_count * sizeof(double));
+    Entry *entries = malloc(vertex_count * sizeof(Entry));
+    int *best_groups = malloc(vertex_count * sizeof(int));
 
-    power_iteration(L, eigenvector, 1000);
-
-    double *sorted = malloc(vertex_count * sizeof(double));
-    memcpy(sorted, eigenvector, vertex_count * sizeof(double));
-    qsort(sorted, vertex_count, sizeof(double), cmp_double);
-
-    int target = vertex_count / parts;
-    int margin = (int)(target * error_margin / 100.0);
-    int min_size = target - margin;
-    int max_size = target + margin;
-
-    int *group_counts = calloc(parts, sizeof(int));
+    assert(L != NULL && eigenvector != NULL && entries != NULL && best_groups != NULL);
+    int max_iter = vertex_count * 10;
+    power_iteration(L, eigenvector, max_iter);
 
     for (int i = 0; i < vertex_count; i++) {
-        int assigned = 0;
-        for (int j = 0; j < parts; j++) {
-            if (group_counts[j] < max_size) {
-                vertices[i].group = j;
-                group_counts[j]++;
-                assigned = 1;
-                break;
-            }
-        }
-        if (!assigned) {
-            int min_index = 0;
-            for (int j = 1; j < parts; j++) {
-                if (group_counts[j] < group_counts[min_index]) min_index = j;
-            }
-            vertices[i].group = min_index;
-            group_counts[min_index]++;
-        }
+        entries[i].index = i;
+        entries[i].value = eigenvector[i];
     }
+    qsort(entries, vertex_count, sizeof(Entry), cmp_entry);
+
+    int best_edge_cut = 999999;
+
+    for (int start = 0; start < parts; start++) {
+        int *group_counts = calloc(parts, sizeof(int));
+        assert(group_counts != NULL);
+
+        for (int i = 0; i < vertex_count; i++) {
+            int g = (i - start + parts) % parts;
+            vertices[entries[i].index].group = g;
+            group_counts[g]++;
+        }
+
+        int target = vertex_count / parts;
+        int margin = (int)(target * error_margin / 100.0);
+        int min_size = target - margin;
+        if (min_size < 0) min_size = 0;
+        int max_size = target + margin;
+
+        fix_group_connectivity_spectral(vertex_count, parts, min_size, max_size);
+        int edge_cut = edge_cut_all(vertex_count);
+        if (edge_cut < best_edge_cut) {
+            best_edge_cut = edge_cut;
+            for (int i = 0; i < vertex_count; i++) best_groups[i] = vertices[i].group;
+        }
+        free(group_counts);
+    }
+
+    for (int i = 0; i < vertex_count; i++) vertices[i].group = best_groups[i];
 
     printf("\nSpektralny podzial (soft margin):\n");
     for (int i = 0; i < parts; i++) {
@@ -163,14 +222,14 @@ void spectral_partitioning(int parts, int vertex_count, double error_margin) {
         }
         printf("\n");
     }
-    int edge_cut = edge_cut_all(vertex_count);
-    printf("\nLiczba przeciętych krawędzi: %d\n", edge_cut);
+    printf("\nLiczba przeciętych krawędzi: %d\n", best_edge_cut);
 
+    free(best_groups);
     free_matrix(L);
     free(eigenvector);
-    free(sorted);
-    free(group_counts);
+    free(entries);
 }
+
 
 void reset_fixed_flags(Vertex *vertices, int vertex_count) {
     for (int i = 0; i < vertex_count; i++) {
@@ -324,6 +383,31 @@ int kernighan_lin_algorithm(int one_group_vertices_count, int vertex_count) {
     return best_cut;
 }
 
+void fix_group_connectivity(int vertex_count, int allowed_balance_diff) {
+    int group_0 = 0, group_1 = 0;
+    for (int i = 0; i < vertex_count; i++) {
+        if (vertices[i].group == 0) group_0++;
+        else group_1++;
+    }
+
+    for (int i = 0; i < vertex_count; i++) {
+        if (!is_vertex_connected_to_own_group(i)) {
+            int current_group = vertices[i].group;
+            int target_group = 1 - current_group;
+
+            if ((target_group == 0 && group_0 + 1 <= group_1 - 1 + allowed_balance_diff) ||
+                (target_group == 1 && group_1 + 1 <= group_0 - 1 + allowed_balance_diff)) {
+                vertices[i].group = target_group;
+                if (target_group == 0) { group_0++; group_1--; }
+                else { group_1++; group_0--; }
+                }
+        }
+    }
+
+    int edge_cut = edge_cut_all(vertex_count);
+    printf("\nPo korekcie spojnosc grup: Liczba przecietych krawedzi: %d\n", edge_cut);
+}
+
 void graph_partioning(char *method, int parts, double error_margin, int vertex_count) {
     if (strcmp(method, "kl") == 0) {
         if (parts != 2) {
@@ -366,6 +450,9 @@ void graph_partioning(char *method, int parts, double error_margin, int vertex_c
             if (best_groups[i] == 1) printf("%d ", i);
         }
         printf("\n");
+
+        int allowed_diff = (int)(vertex_count * (error_margin / 100.0));
+        fix_group_connectivity(vertex_count, allowed_diff);
 
         free(best_groups);
     } else if (strcmp(method, "m") == 0) {
@@ -665,7 +752,7 @@ void flags(int argc, char *argv[], char **input_file, char **output_file, char *
                 break;
             case 'i': // input_file
                 // *input_file = optarg;
-                    *input_file = "C:/Users/Arkadiusz/CLionProjects/nastiaprojekt/dane1.txt";
+                    *input_file = "C:/Users/Arkadiusz/CLionProjects/nastiaprojekt/dane2.txt";
                 break;
             case 'o': // output_file
                 *output_file = optarg;
