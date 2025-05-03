@@ -4,6 +4,9 @@
 #include <stdlib.h>
 #include <getopt.h>
 #include <string.h>
+#include <math.h>
+
+#define EPSILON 1e-6
 
 typedef struct vertex {
     int edge_num;
@@ -16,6 +19,158 @@ typedef struct vertex {
 } Vertex;
 
 Vertex *vertices = NULL;
+
+typedef struct matrix {
+    int n;
+    double **data;
+} Matrix;
+
+Matrix *alloc_matrix(int n) {
+    Matrix *m = malloc(sizeof(Matrix));
+    m->n = n;
+    m->data = malloc(n * sizeof(double *));
+    for (int i = 0; i < n; i++) {
+        m->data[i] = calloc(n, sizeof(double));
+    }
+    return m;
+}
+
+void free_matrix(Matrix *m) {
+    for (int i = 0; i < m->n; i++) {
+        free(m->data[i]);
+    }
+    free(m->data);
+    free(m);
+}
+
+Matrix *build_laplacian_matrix(int n) {
+    Matrix *L = alloc_matrix(n);
+    for (int i = 0; i < n; i++) {
+        int deg = vertices[i].edge_num;
+        L->data[i][i] = deg;
+        for (int j = 0; j < deg; j++) {
+            int neighbor = vertices[i].conn[j];
+            L->data[i][neighbor] = -1;
+        }
+    }
+    return L;
+}
+
+void normalize_vector(double *v, int n) {
+    double norm = 0;
+    for (int i = 0; i < n; i++) norm += v[i] * v[i];
+    norm = sqrt(norm);
+    if (norm > EPSILON) {
+        for (int i = 0; i < n; i++) v[i] /= norm;
+    }
+}
+
+void matvec_mul(Matrix *m, double *v, double *result) {
+    for (int i = 0; i < m->n; i++) {
+        result[i] = 0;
+        for (int j = 0; j < m->n; j++) {
+            result[i] += m->data[i][j] * v[j];
+        }
+    }
+}
+
+double vector_dot(double *a, double *b, int n) {
+    double sum = 0;
+    for (int i = 0; i < n; i++) sum += a[i] * b[i];
+    return sum;
+}
+
+void power_iteration(Matrix *L, double *eigenvector, int max_iter) {
+    int n = L->n;
+    double *b_k = calloc(n, sizeof(double));
+    double *b_k1 = calloc(n, sizeof(double));
+    for (int i = 0; i < n; i++) b_k[i] = rand() / (double)RAND_MAX;
+    normalize_vector(b_k, n);
+
+    for (int iter = 0; iter < max_iter; iter++) {
+        matvec_mul(L, b_k, b_k1);
+        normalize_vector(b_k1, n);
+        double dot = vector_dot(b_k1, b_k, n);
+        if (fabs(dot - 1.0) < EPSILON) break;
+        double *tmp = b_k;
+        b_k = b_k1;
+        b_k1 = tmp;
+    }
+
+    for (int i = 0; i < n; i++) eigenvector[i] = b_k[i];
+    free(b_k);
+    free(b_k1);
+}
+
+int cmp_double(const void *a, const void *b) {
+    double diff = *(double *)a - *(double *)b;
+    return (diff < 0) ? -1 : (diff > 0);
+}
+
+int edge_cut_all(int vertex_count) {
+    int cut = 0;
+    for (int i = 0; i < vertex_count; i++) {
+        for (int j = 0; j < vertices[i].edge_num; j++) {
+            int neighbor = vertices[i].conn[j];
+            if (vertices[i].group != vertices[neighbor].group) cut++;
+        }
+    }
+    return cut / 2;
+}
+
+void spectral_partitioning(int parts, int vertex_count, double error_margin) {
+    Matrix *L = build_laplacian_matrix(vertex_count);
+    double *eigenvector = malloc(vertex_count * sizeof(double));
+
+    power_iteration(L, eigenvector, 1000);
+
+    double *sorted = malloc(vertex_count * sizeof(double));
+    memcpy(sorted, eigenvector, vertex_count * sizeof(double));
+    qsort(sorted, vertex_count, sizeof(double), cmp_double);
+
+    int target = vertex_count / parts;
+    int margin = (int)(target * error_margin / 100.0);
+    int min_size = target - margin;
+    int max_size = target + margin;
+
+    int *group_counts = calloc(parts, sizeof(int));
+
+    for (int i = 0; i < vertex_count; i++) {
+        int assigned = 0;
+        for (int j = 0; j < parts; j++) {
+            if (group_counts[j] < max_size) {
+                vertices[i].group = j;
+                group_counts[j]++;
+                assigned = 1;
+                break;
+            }
+        }
+        if (!assigned) {
+            int min_index = 0;
+            for (int j = 1; j < parts; j++) {
+                if (group_counts[j] < group_counts[min_index]) min_index = j;
+            }
+            vertices[i].group = min_index;
+            group_counts[min_index]++;
+        }
+    }
+
+    printf("\nSpektralny podzial (soft margin):\n");
+    for (int i = 0; i < parts; i++) {
+        printf("Grupa %d: ", i);
+        for (int j = 0; j < vertex_count; j++) {
+            if (vertices[j].group == i) printf("%d ", j);
+        }
+        printf("\n");
+    }
+    int edge_cut = edge_cut_all(vertex_count);
+    printf("\nLiczba przeciętych krawędzi: %d\n", edge_cut);
+
+    free_matrix(L);
+    free(eigenvector);
+    free(sorted);
+    free(group_counts);
+}
 
 void reset_fixed_flags(Vertex *vertices, int vertex_count) {
     for (int i = 0; i < vertex_count; i++) {
@@ -213,6 +368,8 @@ void graph_partioning(char *method, int parts, double error_margin, int vertex_c
         printf("\n");
 
         free(best_groups);
+    } else if (strcmp(method, "m") == 0) {
+        spectral_partitioning(parts, vertex_count, error_margin);
     } else {
         printf("Blad: Wybrana metoda '%s' nie jest jeszcze wspierana.\n", method);
         exit(14);
@@ -508,7 +665,7 @@ void flags(int argc, char *argv[], char **input_file, char **output_file, char *
                 break;
             case 'i': // input_file
                 // *input_file = optarg;
-                    *input_file = "C:/Users/Arkadiusz/CLionProjects/nastiaprojekt/dane2.txt";
+                    *input_file = "C:/Users/Arkadiusz/CLionProjects/nastiaprojekt/dane1.txt";
                 break;
             case 'o': // output_file
                 *output_file = optarg;
