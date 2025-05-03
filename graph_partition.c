@@ -11,47 +11,52 @@ typedef struct vertex {
     int group;
     int fixed;
     int D;
-    short x;
-    short y;
+    int x;
+    int y;
 } Vertex;
 
 Vertex *vertices = NULL;
 
-int calc_G(int first_vertex, int second_vertex1, int second_vertex2) {
-    int g = 0;
-    int connection = 0;
-    int second_vertex = second_vertex1 + second_vertex2;
+void reset_fixed_flags(Vertex *vertices, int vertex_count) {
+    for (int i = 0; i < vertex_count; i++) {
+        vertices[i].fixed = 0;
+    }
+}
 
+void initial_bipartition(Vertex *vertices, int vertex_count, int group1_size) {
+    for (int i = 0; i < vertex_count; i++) {
+        vertices[i].group = (i < group1_size) ? 0 : 1;
+    }
+}
+
+int calc_G(int first_vertex, int second_vertex, int vertex_count) {
+    if (second_vertex >= vertex_count || first_vertex >= vertex_count) return 0;
     if (vertices[first_vertex].fixed == 1 || vertices[second_vertex].fixed == 1) {
         return 0;
     }
 
-    for (int i = 0; i<vertices[first_vertex].edge_num; i++) {
-        int c = 0;
-        if (vertices[first_vertex].conn[i] == second_vertex) {
-            c = 1;
-            if (connection < c) {
-                connection = c;
+    int connection = 0;
+    if (vertices[first_vertex].conn != NULL) {
+        for (int i = 0; i < vertices[first_vertex].edge_num; i++) {
+            if (vertices[first_vertex].conn[i] == second_vertex) {
+                connection = 1;
+                break;
             }
         }
     }
 
-    g = vertices[first_vertex].D + vertices[second_vertex].D - (2*connection);
-    // printf("D wierzcholka %d: %d\n", first_vertex, vertices[first_vertex].D);
-    // printf("D wierzcholka %d: %d\n", second_vertex, vertices[second_vertex].D);
-    // printf("G wierzcholkow %d %d: %d\n", first_vertex, second_vertex, g);
-    return g;
+    return vertices[first_vertex].D + vertices[second_vertex].D - (2 * connection);
 }
 
-void calc_D (int counter) {
-    if (vertices[counter].fixed == 1) {
+void calc_D(int counter) {
+    if (vertices[counter].fixed == 1 || vertices[counter].conn == NULL) {
         return;
     }
 
     int external_edges = 0;
     int internal_edges = 0;
 
-    for (int i=0; i<vertices[counter].edge_num; i++) {
+    for (int i = 0; i < vertices[counter].edge_num; i++) {
         int neighbour = vertices[counter].conn[i];
         if (vertices[counter].group != vertices[neighbour].group) {
             external_edges++;
@@ -60,14 +65,13 @@ void calc_D (int counter) {
         }
     }
 
-    int D = external_edges - internal_edges;
-    // printf("wartosc D wierzholka %d: %d\n", counter, D);
-    vertices[counter].D = D;
+    vertices[counter].D = external_edges - internal_edges;
 }
 
 int edge_cut_counter(int one_group_vertices_count) {
     int edge_cut_count = 0;
     for (int i = 0; i < one_group_vertices_count; i++) {
+        if (vertices[i].conn == NULL) continue;
         for (int j = 0; j < vertices[i].edge_num; j++) {
             int neighbour = vertices[i].conn[j];
             if (vertices[i].group != vertices[neighbour].group) {
@@ -78,121 +82,143 @@ int edge_cut_counter(int one_group_vertices_count) {
     return edge_cut_count;
 }
 
-int kernighan_lin_algorithm (int one_group_vertices_count, int vertex_count) {
+typedef struct swap {
+    int a;
+    int b;
+    int gain;
+} Swap;
 
-    //liczba przecietych krawedzi
+int kernighan_lin_algorithm(int one_group_vertices_count, int vertex_count) {
     int edge_cut = edge_cut_counter(one_group_vertices_count);
-    int new_edge_cut = edge_cut - 1;
+    int group2_size = vertex_count - one_group_vertices_count;
+    int best_cut = edge_cut;
 
-    while (new_edge_cut < edge_cut) {
-        // printf("liczba przecietych krawedzi: %d", edge_cut);
-
-        // liczenie zysku D kazdego wierzcholka
-        for (int i = 0; i < vertex_count; i++) calc_D(i);
-
-        // liczenie wskaznika wydajnosci G kazdej pary
-        int second_group_vertices_count = vertex_count - one_group_vertices_count;
-        // int size = one_group_vertices_count * second_group_vertices_count;
-        int gain[one_group_vertices_count][second_group_vertices_count];
-        for (int i=0; i<one_group_vertices_count; i++) {
-            for (int j=0; j<second_group_vertices_count; j++) {
-                gain[i][j] = calc_G(i, j, one_group_vertices_count);
-            }
-        }
-        int max_gain = gain[0][0];
-        int best_first_vertex_to_swap = 0, best_second_vertex_to_swap = 0;
-
-        for (int i = 0; i < one_group_vertices_count; i++) {
-            for (int j = 0; j < second_group_vertices_count; j++) {
-                if (gain[i][j] > max_gain) {
-                    max_gain = gain[i][j];
-                    best_first_vertex_to_swap = i;
-                    best_second_vertex_to_swap = j + one_group_vertices_count;
-                }
-            }
-        }
-
-        if (max_gain<0) break;
-
-        if (vertices[best_first_vertex_to_swap].group == 1) {
-            vertices[best_first_vertex_to_swap].group = 2;
-            vertices[best_first_vertex_to_swap].fixed = 1;
-        }
-
-        if (vertices[best_second_vertex_to_swap].group == 2) {
-            vertices[best_second_vertex_to_swap].group = 1;
-            vertices[best_second_vertex_to_swap].fixed = 1;
-        }
-        // printf("Zamieniono: %d i %d", best_first_vertex_to_swap, best_second_vertex_to_swap);
-        new_edge_cut = edge_cut - max_gain;
-        // printf("Nowy edge cut: %d", max_gain);
-        edge_cut = edge_cut_counter(one_group_vertices_count);
+    int *initial_groups = malloc(vertex_count * sizeof(int));
+    if (!initial_groups) exit(15);
+    for (int i = 0; i < vertex_count; i++) {
+        initial_groups[i] = vertices[i].group;
     }
 
-    return new_edge_cut;
+    int *gain = malloc(one_group_vertices_count * group2_size * sizeof(int));
+    Swap *swaps = malloc(one_group_vertices_count * sizeof(Swap));
+
+    while (1) {
+        for (int i = 0; i < vertex_count; i++) calc_D(i);
+        reset_fixed_flags(vertices, vertex_count);
+
+        int swap_count = 0;
+
+        for (int s = 0; s < one_group_vertices_count; s++) {
+            int max_gain = -999999;
+            int best_i = -1, best_j = -1;
+
+            for (int i = 0; i < one_group_vertices_count; i++) {
+                if (vertices[i].fixed) continue;
+                for (int j = 0; j < group2_size; j++) {
+                    int idx_j = j + one_group_vertices_count;
+                    if (vertices[idx_j].fixed) continue;
+                    int g_val = calc_G(i, idx_j, vertex_count);
+                    if (g_val > max_gain) {
+                        max_gain = g_val;
+                        best_i = i;
+                        best_j = idx_j;
+                    }
+                }
+            }
+
+            if (max_gain < 0) break;
+
+            vertices[best_i].fixed = 1;
+            vertices[best_j].fixed = 1;
+            swaps[swap_count++] = (Swap){best_i, best_j, max_gain};
+        }
+
+        int prefix_sum = 0, max_prefix_sum = -999999, k_max = -1;
+        for (int i = 0; i < swap_count; i++) {
+            prefix_sum += swaps[i].gain;
+            if (prefix_sum > max_prefix_sum) {
+                max_prefix_sum = prefix_sum;
+                k_max = i;
+            }
+        }
+
+        if (max_prefix_sum <= 0) break;
+
+        for (int i = 0; i <= k_max; i++) {
+            int a = swaps[i].a;
+            int b = swaps[i].b;
+            int tmp = vertices[a].group;
+            vertices[a].group = vertices[b].group;
+            vertices[b].group = tmp;
+        }
+
+        edge_cut = edge_cut_counter(one_group_vertices_count);
+        if (edge_cut < best_cut) {
+            best_cut = edge_cut;
+            for (int i = 0; i < vertex_count; i++) initial_groups[i] = vertices[i].group;
+        } else break;
+    }
+
+    for (int i = 0; i < vertex_count; i++) {
+        vertices[i].group = initial_groups[i];
+    }
+
+    free(gain);
+    free(swaps);
+    free(initial_groups);
+    return best_cut;
 }
 
 void graph_partioning(char *method, int parts, double error_margin, int vertex_count) {
     if (strcmp(method, "kl") == 0) {
         if (parts != 2) {
-            printf("Blad: bledne dane wejsciowe.");
+            printf("Blad: Metoda KL wspiera tylko podzial na 2 grupy.\n");
             exit(14);
         }
 
-        // podzial na 2 grupy
         int ideal_half = vertex_count / 2;
-        int other_half = vertex_count - ideal_half;
-        int actual_diff = abs(ideal_half - other_half);
-        int best_edge_cut = 999999; // duża liczba na start
-        int best_groups[vertex_count];
-
-        if (error_margin != -1) {
-            double max_allowed_diff = vertex_count * (error_margin / 100.0);
-            if (actual_diff > max_allowed_diff) {
-                printf("Blad: Podzial jest niemozliwy.\n");
-                exit(19);
-            }
-
-            int min_vertices_count_in_group = ideal_half - (int)max_allowed_diff/2;
-            int diff_vertices_count_in_group1 = ideal_half - min_vertices_count_in_group;
-
-            printf("Minimalna ilosc w grupie %d\n", min_vertices_count_in_group);
-            printf("roznica ilosc w grupie %d\n", diff_vertices_count_in_group1);
-
-            for(int i = 0; i <= diff_vertices_count_in_group1; i++) {
-                // printf("Iteracja %d\n", i);
-                int actual_vertices_count_in_group = min_vertices_count_in_group + i;
-                for (int j = 0; j < vertex_count; j++) {
-                    vertices[j].fixed = 0;
-                    if (j < actual_vertices_count_in_group) {
-                        vertices[j].group = 1;
-                    } else {
-                        vertices[j].group = 2;
-                    }
-                }
-
-                int edge_cut = kernighan_lin_algorithm(actual_vertices_count_in_group, vertex_count);
-                if (edge_cut < best_edge_cut) {
-                    best_edge_cut = edge_cut;
-                    for (int j = 0; j < vertex_count; j++) {
-                        best_groups[j] = vertices[j].group;
-                    }
-                }
-            }
-
-            printf("\nNajlepszy podzial (edge cut = %d):\n", best_edge_cut);
-            printf("Grupa 1: ");
-            for (int i = 0; i < vertex_count; i++) {
-                if (best_groups[i] == 1) printf("%d ", i);
-            }
-            printf("\nGrupa 2: ");
-            for (int i = 0; i < vertex_count; i++) {
-                if (best_groups[i] == 2) printf("%d ", i);
-            }
-            printf("\n");
+        int best_edge_cut = 999999;
+        int *best_groups = malloc(vertex_count * sizeof(int));
+        if (!best_groups) {
+            printf("Blad pamieci (best_groups).\n");
+            exit(15);
         }
+
+        double max_allowed_diff = (error_margin == -1) ? 0 : vertex_count * (error_margin / 100.0);
+        int min_group = ideal_half - (int)(max_allowed_diff / 2);
+        int max_group = ideal_half + (int)(max_allowed_diff / 2);
+
+        for (int size = min_group; size <= max_group; size++) {
+            reset_fixed_flags(vertices, vertex_count);
+            initial_bipartition(vertices, vertex_count, size);
+
+            int edge_cut = kernighan_lin_algorithm(size, vertex_count);
+            if (edge_cut < best_edge_cut) {
+                best_edge_cut = edge_cut;
+                for (int i = 0; i < vertex_count; i++) {
+                    best_groups[i] = vertices[i].group;
+                }
+            }
+        }
+
+        printf("\nNajlepszy podzial (edge cut = %d):\n", best_edge_cut);
+        printf("Grupa 0: ");
+        for (int i = 0; i < vertex_count; i++) {
+            if (best_groups[i] == 0) printf("%d ", i);
+        }
+        printf("\nGrupa 1: ");
+        for (int i = 0; i < vertex_count; i++) {
+            if (best_groups[i] == 1) printf("%d ", i);
+        }
+        printf("\n");
+
+        free(best_groups);
+    } else {
+        printf("Blad: Wybrana metoda '%s' nie jest jeszcze wspierana.\n", method);
+        exit(14);
     }
 }
+
 
 void read_file_error(FILE *file) {
     if (file == NULL) {
@@ -255,7 +281,7 @@ void read_num_dynamic(FILE *file, int **array, int *count) {
         exit(15);
     }
 
-    size_t buffer_size = 8192;
+    int buffer_size = 8192;
     char *line = malloc(buffer_size);
     if (!line) {
         printf("Blad pamieci.\n");
@@ -293,7 +319,6 @@ void read_file(char **input_file, int *vertex_count) {
 
     int max_matrix = 0;
     fscanf(file, "%d", &max_matrix);
-    max_matrix--;
     int ch;
     while ((ch = fgetc(file)) != '\n' && ch != EOF);
 
@@ -332,7 +357,7 @@ void read_file(char **input_file, int *vertex_count) {
 
         for (int y = 0; y < y_offsets_count - 1; y++) {
             if (i >= y_offsets[y] && i < y_offsets[y + 1]) {
-                vertices[i].y = y - 1;
+                vertices[i].y = y;
                 break;
             }
         }
@@ -411,6 +436,11 @@ void read_file(char **input_file, int *vertex_count) {
 
 
 void flags_error(char **format, char *raw_parts, int *parts, char **method, char *raw_error_margin, double *error_margin) {
+    if (*format == NULL || *method == NULL) {
+        printf("Blad: brak wymaganych parametrow --format lub --method.\n");
+        exit(14);
+    }
+
     // format
     if (strcmp(*format, "ascii") != 0 && strcmp(*format, "binary") != 0) {
         printf("Blad: bledne dane wejsciowe.\n");
@@ -478,7 +508,7 @@ void flags(int argc, char *argv[], char **input_file, char **output_file, char *
                 break;
             case 'i': // input_file
                 // *input_file = optarg;
-                    *input_file = "C:/Users/Arkadiusz/CLionProjects/projektJIMP2C/dane2.txt";
+                    *input_file = "C:/Users/Arkadiusz/CLionProjects/nastiaprojekt/dane2.txt";
                 break;
             case 'o': // output_file
                 *output_file = optarg;
@@ -516,6 +546,7 @@ int main(int argc, char *argv[]) {
     read_file(&input_file, &vertex_count);
 
     graph_partioning(method, parts, error_margin, vertex_count);
+
     // Wypisanie wartości parametrow
     // printf("wartosc -m --method: %s\n", method);
     // printf("wartosc -i: %s\n", input_file);
