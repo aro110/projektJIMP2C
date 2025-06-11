@@ -17,6 +17,7 @@ public class GraphVisualizer extends JPanel {
     private double minZoom = 0.1;
     private int offsetX = 0, offsetY = 0;
     private int lastMouseX, lastMouseY;
+    private int nodeSize = 30;
 
     private int canvasWidth = 1000, canvasHeight = 1000;
     private int maxX = 0, maxY = 0;
@@ -38,6 +39,14 @@ public class GraphVisualizer extends JPanel {
         add(new JScrollPane(drawPanel), BorderLayout.CENTER);
         add(createSidePanel(drawPanel), BorderLayout.EAST);
         addMouseInteraction(drawPanel);
+
+        addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                calculateMinZoom();  // Ponownie obliczamy minimalny zoom przy zmianie rozmiaru okna
+            }
+        });
+
     }
 
     private void analyzeGraphSize() {
@@ -48,19 +57,22 @@ public class GraphVisualizer extends JPanel {
     }
 
     private void calculateMinZoom() {
-        double sx = (canvasWidth - 2.0 * padding) / (double) (maxX + 1);
-        double sy = (canvasHeight - 2.0 * padding) / (double) (maxY + 1);
-        minZoom = Math.min(sx, sy) / Math.max(sx, sy);
-        minZoom = Math.min(minZoom, 1.0);
+        double sx = (canvasWidth - 2.0 * padding) / (double) (maxX + 1);  // Dostosowanie do szerokości
+        double sy = (canvasHeight - 2.0 * padding) / (double) (maxY + 1); // Dostosowanie do wysokości
+        minZoom = Math.min(sx, sy);  // Wybieramy mniejszy współczynnik, aby cały graf się zmieścił
+        minZoom = Math.min(minZoom, 1.0);  // Ograniczamy zoom, aby nie przekroczył 1
         resetCamera();
     }
 
     private void resetCamera() {
-        zoom = minZoom;
+        zoom = minZoom;  // Ustawienie zoomu na minimalną wartość, która sprawia, że graf się mieści
         offsetX = 0;
         offsetY = 0;
+        nodeSize = 30;
         repaint();
     }
+
+
 
     private void generateGroupColors() {
         Set<Integer> groups = new HashSet<>();
@@ -113,6 +125,29 @@ public class GraphVisualizer extends JPanel {
         JScrollPane scrollPane = new JScrollPane(groupPanel);
         panel.add(scrollPane, BorderLayout.CENTER);
 
+
+        // Wewnątrz metody createSidePanel
+        JPanel vertexSizePanel = new JPanel();
+        vertexSizePanel.setLayout(new BoxLayout(vertexSizePanel, BoxLayout.Y_AXIS));
+        vertexSizePanel.setBorder(BorderFactory.createTitledBorder("Zmiana rozmiaru wierzchołków"));
+
+// Dodajemy suwak
+        JSlider vertexSizeSlider = new JSlider(JSlider.HORIZONTAL, 10, 100, nodeSize);  // Zakres od 10 do 100
+        vertexSizeSlider.setMajorTickSpacing(10);
+        vertexSizeSlider.setMinorTickSpacing(1);
+        vertexSizeSlider.setPaintTicks(true);
+        vertexSizeSlider.setPaintLabels(true);
+
+// Dodajemy listener
+        vertexSizeSlider.addChangeListener(e -> {
+            int newSize = vertexSizeSlider.getValue();
+            updateVertexSize(newSize);
+        });
+        vertexSizePanel.add(vertexSizeSlider);
+
+// Dodajemy do panelu
+        panel.add(vertexSizePanel, BorderLayout.SOUTH);
+
         // Statystyki
         statsPanel = new JPanel();
         statsPanel.setLayout(new BoxLayout(statsPanel, BoxLayout.Y_AXIS));
@@ -135,6 +170,12 @@ public class GraphVisualizer extends JPanel {
 
         return panel;
     }
+
+    private void updateVertexSize(int newSize) {
+        nodeSize = newSize;  // Aktualizujemy globalny rozmiar wierzchołków
+        repaint();  // Przerysowujemy cały panel
+    }
+
 
     private void updateStats() {
         statsPanel.removeAll();
@@ -237,6 +278,34 @@ public class GraphVisualizer extends JPanel {
         });
     }
 
+    private void applyRepulsion(Vertex[] vertices, double scaleX, double scaleY) {
+        final double repulsionForce = 0.01; // Siła odpychania, im większa tym większe odległości
+        for (int i = 0; i < vertices.length; i++) {
+            Vertex v = vertices[i];
+            double x1 = v.x * scaleX;
+            double y1 = v.y * scaleY;
+
+            for (int j = i + 1; j < vertices.length; j++) {
+                Vertex u = vertices[j];
+                double x2 = u.x * scaleX;
+                double y2 = u.y * scaleY;
+
+                double dx = x1 - x2;
+                double dy = y1 - y2;
+                double distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance < 50) {
+                    double force = repulsionForce / distance;
+                    v.x += (int) (force * dx);
+                    v.y += (int) (force * dy);
+                    u.x -= (int) (force * dx);
+                    u.y -= (int) (force * dy);
+                }
+            }
+        }
+    }
+
+
     private void clampOffsets(int width, int height) {
         double scaleX = ((width - 2.0 * padding) / (double) (maxX + 1)) * zoom;
         double scaleY = ((height - 2.0 * padding) / (double) (maxY + 1)) * zoom;
@@ -298,13 +367,19 @@ public class GraphVisualizer extends JPanel {
             double scaleX = ((getWidth() - 2.0 * padding) / (double) (maxX + 1)) * zoom;
             double scaleY = ((getHeight() - 2.0 * padding) / (double) (maxY + 1)) * zoom;
 
+            // Zastosowanie siły odpychania
+            applyRepulsion(vertices, scaleX, scaleY);
+
             Map<Vertex, Point> pos = new HashMap<>();
             for (Vertex v : vertices) {
+                if (!groupVisibility.getOrDefault(v.group, true)) continue; // Rysuj tylko widoczne grupy
+
                 int px = (int)(padding + v.x * scaleX + offsetX);
                 int py = (int)(padding + v.y * scaleY + offsetY);
                 pos.put(v, new Point(px, py));
             }
 
+            // Zbiór wierzchołków sąsiadów dla podświetlania
             Set<Vertex> neighbors = new HashSet<>();
             if (hoveredVertex != null) {
                 for (int neighborIndex : hoveredVertex.conn) {
@@ -312,48 +387,51 @@ public class GraphVisualizer extends JPanel {
                 }
             }
 
+            // Rysowanie krawędzi
             g2d.setStroke(new BasicStroke(1));
             g2d.setColor(new Color(150, 150, 150, 50));
             for (Vertex v : vertices) {
                 if (!groupVisibility.getOrDefault(v.group, true)) continue;
+
                 Point p1 = pos.get(v);
                 for (int neighborIndex : v.conn) {
                     Vertex neighbor = vertices[neighborIndex];
+
+                    // Podświetlanie krawędzi (w zależności od najechanego wierzchołka)
+                    if (hoveredVertex != null && (v.equals(hoveredVertex) || neighbor.equals(hoveredVertex))) {
+                        g2d.setColor(new Color(255, 100, 0, 200));  // Krawędź podświetlona na pomarańczowo
+                    } else {
+                        g2d.setColor(new Color(150, 150, 150, 50));  // Domyślna krawędź
+                    }
+
                     if (!groupVisibility.getOrDefault(neighbor.group, true)) continue;
+
                     Point p2 = pos.get(neighbor);
                     g2d.drawLine(p1.x, p1.y, p2.x, p2.y);
                 }
             }
 
-            if (hoveredVertex != null) {
-                g2d.setColor(new Color(255, 100, 0, 200));
-                g2d.setStroke(new BasicStroke(2));
-                Point p1 = pos.get(hoveredVertex);
-                for (int neighborIndex : hoveredVertex.conn) {
-                    Vertex neighbor = vertices[neighborIndex];
-                    if (!groupVisibility.getOrDefault(neighbor.group, true)) continue;
-                    Point p2 = pos.get(neighbor);
-                    g2d.drawLine(p1.x, p1.y, p2.x, p2.y);
-                }
-            }
-
-            int nodeSize = (int)(30 * zoom);
+            // Rysowanie wierzchołków
             for (int i = 0; i < vertices.length; i++) {
                 Vertex v = vertices[i];
                 if (!groupVisibility.getOrDefault(v.group, true)) continue;
                 Point p = pos.get(v);
 
+                // Podświetlanie wierzchołka
                 if (v.equals(hoveredVertex)) {
-                    g2d.setColor(Color.ORANGE);
+                    g2d.setColor(Color.ORANGE);  // Podświetlenie wierzchołka
                 } else if (neighbors.contains(v)) {
-                    g2d.setColor(new Color(255, 180, 80));
+                    g2d.setColor(new Color(255, 180, 80));  // Kolor dla sąsiadów
                 } else {
-                    g2d.setColor(groupColors.get(v.group));
+                    g2d.setColor(groupColors.get(v.group));  // Kolor wierzchołka wg grupy
                 }
+
+                // Rysowanie wierzchołka
                 g2d.fillOval(p.x - nodeSize / 2, p.y - nodeSize / 2, nodeSize, nodeSize);
                 g2d.setColor(Color.BLACK);
                 g2d.drawOval(p.x - nodeSize / 2, p.y - nodeSize / 2, nodeSize, nodeSize);
 
+                // Etykieta wierzchołka
                 int fontSize = Math.max(8, nodeSize / 2);
                 g2d.setFont(new Font("Arial", Font.BOLD, fontSize));
                 FontMetrics fm = g2d.getFontMetrics();
@@ -363,6 +441,7 @@ public class GraphVisualizer extends JPanel {
                 g2d.drawString(label, p.x - lw / 2, p.y + lh / 2 - 3);
             }
 
+            // Rysowanie tooltipa dla wierzchołka
             if (hoveredVertex != null && mousePos != null) {
                 String tooltipText = String.format(
                         "Wierzchołek %d\nGrupa: %d\nPołączenia: %d\nSąsiedzi: %s",
@@ -383,7 +462,7 @@ public class GraphVisualizer extends JPanel {
                 int tx = mousePos.x + 10;
                 int ty = mousePos.y + 10;
 
-                g2d.setColor(new Color(255, 255, 225, 230));
+                g2d.setColor(new Color(255, 255, 229, 230));
                 g2d.fillRoundRect(tx, ty, tooltipWidth + 10, tooltipHeight + 10, 10, 10);
                 g2d.setColor(Color.BLACK);
                 g2d.drawRoundRect(tx, ty, tooltipWidth + 10, tooltipHeight + 10, 10, 10);
@@ -393,5 +472,6 @@ public class GraphVisualizer extends JPanel {
                 }
             }
         }
+
     }
 }

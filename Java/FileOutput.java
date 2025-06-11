@@ -4,6 +4,8 @@ import java.nio.ByteOrder;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
+import javax.swing.JOptionPane;
+import java.awt.Desktop;
 
 public class FileOutput {
 
@@ -26,6 +28,7 @@ public class FileOutput {
                 writer.write("\n");
             }
         }
+        showFileSavedDialog(filename);
     }
 
     // BIN zapis
@@ -63,6 +66,7 @@ public class FileOutput {
             raf.seek(5);
             writeUint32LE(raf, checksum);
         }
+        showFileSavedDialog(filename);
     }
 
     // Pomocnicze funkcje:
@@ -153,6 +157,40 @@ public class FileOutput {
             return vertexArray;
         }
     }
+
+    private static void showFileSavedDialog(String filePath) {
+        // Tworzymy okno dialogowe
+        int option = JOptionPane.showOptionDialog(
+                null,
+                "Plik zapisano pomyślnie. Co chcesz zrobić?",
+                "Plik zapisany",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.INFORMATION_MESSAGE,
+                null,
+                new String[]{"Pokaż", "Otwórz"},
+                "Pokaż"
+        );
+
+        // Obsługuje wybór użytkownika
+        if (option == JOptionPane.YES_OPTION) {
+            // Pokaż w Eksploratorze
+            try {
+                File file = new File(filePath);
+                Desktop.getDesktop().open(file.getParentFile()); // Otwarcie folderu, w którym jest plik
+            } catch (IOException e) {
+                JOptionPane.showMessageDialog(null, "Błąd podczas otwierania folderu: " + e.getMessage(), "Błąd", JOptionPane.ERROR_MESSAGE);
+            }
+        } else if (option == JOptionPane.NO_OPTION) {
+            // Otwórz plik
+            try {
+                File file = new File(filePath);
+                Desktop.getDesktop().open(file); // Otwarcie pliku w domyślnej aplikacji
+            } catch (IOException e) {
+                JOptionPane.showMessageDialog(null, "Błąd podczas otwierania pliku: " + e.getMessage(), "Błąd", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
+
 
     private static void buildAdjacency(Vertex[] vertices) {
         Map<Integer, Set<Integer>> adj = new HashMap<>();
