@@ -12,6 +12,7 @@ public class MainFrame extends JFrame {
     private JTextField filePathField;
     private JCheckBox forceCheckBox;
     private JComboBox<String> outputFileTypeComboBox;
+    private JComboBox<String> methodTypeComboBox;
     private JTextField partsCountField;
     private JTextField errorMarginField;
     private JTextField graphIndexField;
@@ -20,7 +21,7 @@ public class MainFrame extends JFrame {
     public MainFrame() {
         config = new Config();
         setTitle("Podział grafu");
-        setSize(500, 400);
+        setSize(500, 450);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
 
@@ -28,7 +29,7 @@ public class MainFrame extends JFrame {
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(5, 5, 5, 5);
 
-        JLabel fileLabel = new JLabel("Wybierz plik:");
+        JLabel fileLabel = new JLabel("Ścieżka do pliku wejściowego:");
         gbc.gridx = 0;
         gbc.gridy = 0;
         add(fileLabel, gbc);
@@ -54,9 +55,20 @@ public class MainFrame extends JFrame {
         gbc.gridx = 1;
         add(outputFileTypeComboBox, gbc);
 
-        JLabel partsCountLabel = new JLabel("Ilość części:");
+        JLabel methodLabel = new JLabel("Algorytm podziału:");
         gbc.gridx = 0;
         gbc.gridy = 4;
+        gbc.gridwidth = 1;
+        add(methodLabel, gbc);
+
+        String[] methodTypes = {"Kernighan-Lin", "Spektralny"};
+        methodTypeComboBox = new JComboBox<>(methodTypes);
+        gbc.gridx = 1;
+        add(methodTypeComboBox, gbc);
+
+        JLabel partsCountLabel = new JLabel("Ilość części:");
+        gbc.gridx = 0;
+        gbc.gridy = 5;
         add(partsCountLabel, gbc);
 
         partsCountField = new JTextField(5);
@@ -65,7 +77,7 @@ public class MainFrame extends JFrame {
 
         JLabel errorMarginLabel = new JLabel("Margines błędu (%):");
         gbc.gridx = 0;
-        gbc.gridy = 5;
+        gbc.gridy = 6;
         add(errorMarginLabel, gbc);
 
         errorMarginField = new JTextField(5);
@@ -74,7 +86,7 @@ public class MainFrame extends JFrame {
 
         JLabel graphIndexLabel = new JLabel("Indeks grafu:");
         gbc.gridx = 0;
-        gbc.gridy = 6;
+        gbc.gridy = 7;
         add(graphIndexLabel, gbc);
 
         graphIndexField = new JTextField(5);
@@ -83,7 +95,7 @@ public class MainFrame extends JFrame {
 
         JLabel outputFilePathLabel = new JLabel("Ścieżka do pliku wyjściowego:");
         gbc.gridx = 0;
-        gbc.gridy = 7;
+        gbc.gridy = 8;
         add(outputFilePathLabel, gbc);
 
         outputFilePathField = new JTextField(20);
@@ -93,14 +105,14 @@ public class MainFrame extends JFrame {
         JButton runButton = new JButton("Uruchom");
         runButton.addActionListener(e -> runGraphPartition());
         gbc.gridx = 0;
-        gbc.gridy = 8;
+        gbc.gridy = 9;
         gbc.gridwidth = 2;
         add(runButton, gbc);
 
         JButton loadGraphButton = new JButton("Wczytaj graf");
         loadGraphButton.addActionListener(e -> loadAndVisualizeGraph());
         gbc.gridx = 0;
-        gbc.gridy = 9;
+        gbc.gridy = 10;
         gbc.gridwidth = 2;
         add(loadGraphButton, gbc);
     }
@@ -110,6 +122,7 @@ public class MainFrame extends JFrame {
             String filePath = filePathField.getText();
             boolean forcePartition = forceCheckBox.isSelected();
             String outputFileType = (String) outputFileTypeComboBox.getSelectedItem();
+            String methodType = (String) methodTypeComboBox.getSelectedItem();
 
             int partsCount = Integer.parseInt(partsCountField.getText());
             if (partsCount < 2) {
@@ -125,7 +138,7 @@ public class MainFrame extends JFrame {
 
             int graphIndex = Integer.parseInt(graphIndexField.getText());
             if (graphIndex < 0) {
-                JOptionPane.showMessageDialog(this, "Indeks grafu musi być liczbą większą lub równą 0!", "Błąd", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, "Indeks grafu musi być liczbą większą albo równą 0!", "Błąd", JOptionPane.ERROR_MESSAGE);
                 return;
             }
 
@@ -140,8 +153,15 @@ public class MainFrame extends JFrame {
 
             Vertex[] vertices = GraphConverter.convertToVertices(xCoords, yOffsets, connections, offsets, xCoords.length);
 
-            SpectralPartitioner spectralPartitioner = new SpectralPartitioner(vertices, partsCount, errorMargin);
-            List<List<Vertex>> partitions = spectralPartitioner.partitionGraph();
+            if (methodType.equals("Kernighan-Lin") && partsCount == 2) {
+                KernighanLin kl = new KernighanLin(vertices);
+                kl.kernighanLinPartition();
+            } else if (methodType.equals("Spektralny")) {
+                SpectralPartitioner spectralPartitioner = new SpectralPartitioner(vertices, partsCount, errorMargin);
+                List<List<Vertex>> partitions = spectralPartitioner.partitionGraph();
+            } else {
+                JOptionPane.showMessageDialog(this, "Dla tego algorytmu, można wykonać podział tylko na dwie części!", "Błąd", JOptionPane.ERROR_MESSAGE);
+            }
 
             GraphUtils.fixAndCleanGraph(vertices, forcePartition);
 
@@ -151,7 +171,7 @@ public class MainFrame extends JFrame {
             SwingUtilities.invokeLater(() -> visualizeGraph(vertices));
 
         } catch (NumberFormatException | IOException e) {
-            JOptionPane.showMessageDialog(this, "Wprowadź poprawne liczby lub sprawdź plik wejściowy!", "Błąd", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Wprowadź poprawne liczby lub sprawdź plik wejściowy/wyjściowy!", "Błąd", JOptionPane.ERROR_MESSAGE);
         } catch (NoSuchAlgorithmException e) {
             throw new RuntimeException(e);
         }

@@ -9,7 +9,7 @@ public class SpectralPartitioner {
     public SpectralPartitioner(Vertex[] vertices, int parts, double tolerance) {
         this.vertices = vertices;
         this.parts = parts;
-        this.tolerance = tolerance; // np. 0.15 dla 15%
+        this.tolerance = tolerance;
     }
 
     public List<List<Vertex>> partitionGraph() {
